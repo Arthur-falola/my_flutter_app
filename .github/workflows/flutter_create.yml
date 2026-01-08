@@ -14,7 +14,10 @@ jobs:
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: stable
+          flutter-version: "3.19.6"
+
+      - name: Flutter doctor
+        run: flutter doctor
 
       - name: Create Flutter App
         run: |
