@@ -1480,7 +1480,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Date: ${MyDateFormat('dd/MM/yyyy HH:mm').format(order.date)}',
+                                        'Date: ${DateFormat('dd/MM/yyyy HH:mm').format(order.date)}',
                                         style: const TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey,
@@ -1504,25 +1504,3 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ============================================
-// UTILITAIRES
-// ============================================
-
-int min(int a, int b) => a < b ? a : b;
-
-class MyDateFormat {
-  static String format(DateTime date, String pattern) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
-    
-    return pattern
-        .replaceAll('dd', day)
-        .replaceAll('MM', month)
-        .replaceAll('yyyy', year)
-        .replaceAll('HH', hour)
-        .replaceAll('mm', minute);
-  }
-}
