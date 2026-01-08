@@ -121,7 +121,7 @@ class Order {
 // ============================================
 
 class ApiService {
-  static const String baseUrl = 'https://skyboost.me/api_skyboost.php'; // À MODIFIER
+  static const String baseUrl = 'https://apiskyboost.alwaysdata.net/api_skyboost.php'; // À MODIFIER
   
   Future<Map<String, dynamic>> request(String action, {Map<String, dynamic>? body}) async {
     try {
