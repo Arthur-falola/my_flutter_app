@@ -1,0 +1,30 @@
+name: Create Flutter Project
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: stable
+
+      - name: Create Flutter App
+        run: |
+          flutter create .
+          rm -rf .git
+
+      - name: Commit generated project
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Initial Flutter project"
+          git push
