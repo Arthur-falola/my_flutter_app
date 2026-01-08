@@ -2,6 +2,8 @@ name: Create Flutter Project
 
 on:
   workflow_dispatch:
+permissions:
+  contents: write
 
 jobs:
   create:
