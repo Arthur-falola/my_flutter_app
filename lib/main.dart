@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1316,7 +1318,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             decoration: BoxDecoration(
                               color: Colors.grey[100],
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey[300]),
+                              border: Border.all(color: Colors.grey[300]!),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1478,7 +1480,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Date: ${DateFormat('dd/MM/yyyy HH:mm').format(order.date)}',
+                                        'Date: ${MyDateFormat('dd/MM/yyyy HH:mm').format(order.date)}',
                                         style: const TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey,
@@ -1508,7 +1510,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
 int min(int a, int b) => a < b ? a : b;
 
-class DateFormat {
+class MyDateFormat {
   static String format(DateTime date, String pattern) {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
