@@ -22,7 +22,6 @@ jobs:
       - name: Create Flutter App
         run: |
           flutter create .
-          rm -rf .git
 
       - name: Commit generated project
         run: |
