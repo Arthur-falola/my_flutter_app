@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'dart:math';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,9 +39,9 @@ class User {
       id: json['id'] ?? 0,
       username: json['username'] ?? '',
       email: json['email'] ?? '',
-      balance: (json['solde'] ?? 0.0).toDouble(),
-      currency: json['devise'] ?? 'XOF',
-      referralCode: json['referral_code'],
+      balance: (json['balance'] ?? json['solde'] ?? 0.0).toDouble(),
+      currency: json['currency'] ?? json['devise'] ?? 'XOF',
+      referralCode: json['referral_code'] ?? json['referralCode'],
       createdAt: DateTime.parse(json['created_at'] ?? DateTime.now().toString()),
     );
   }
@@ -69,7 +68,7 @@ class Service {
 
   factory Service.fromJson(Map<String, dynamic> json) {
     return Service(
-      id: json['id'] ?? json['service'] ?? '',
+      id: json['id']?.toString() ?? json['service']?.toString() ?? '',
       name: json['name'] ?? '',
       category: json['category'] ?? '',
       rate: double.tryParse(json['rate'].toString()) ?? 0.0,
@@ -107,11 +106,11 @@ class Order {
     return Order(
       id: json['id'] ?? 0,
       service: json['service'] ?? '',
-      quantity: json['quantite'] ?? 0,
-      price: (json['prix'] ?? 0.0).toDouble(),
-      link: json['lien'] ?? '',
-      status: json['statut'] ?? 'En cours',
-      date: DateTime.parse(json['date_commande'] ?? DateTime.now().toString()),
+      quantity: json['quantity'] ?? json['quantite'] ?? 0,
+      price: (json['price'] ?? json['prix'] ?? 0.0).toDouble(),
+      link: json['link'] ?? json['lien'] ?? '',
+      status: json['status'] ?? json['statut'] ?? 'En cours',
+      date: DateTime.parse(json['date'] ?? json['date_commande'] ?? DateTime.now().toString()),
     );
   }
 }
@@ -121,25 +120,43 @@ class Order {
 // ============================================
 
 class ApiService {
-  static const String baseUrl = 'https://apiskyboost.alwaysdata.net/api_skyboost.php'; // À MODIFIER
+  static const String baseUrl = 'https://apiskyboost.alwaysdata.net/api_skyboost.php';
   
   Future<Map<String, dynamic>> request(String action, {Map<String, dynamic>? body}) async {
     try {
       final url = Uri.parse('$baseUrl?action=$action');
       
+      // Debug logging
+      print('🌐 API Request: $action');
+      print('📤 URL: $url');
+      if (body != null) print('📦 Body: $body');
+      
       final response = body != null
-          ? await http.post(url, body: body)
+          ? await http.post(
+              url,
+              body: body,
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+            )
           : await http.get(url);
       
+      print('📥 Response Status: ${response.statusCode}');
+      print('📥 Response Body: ${response.body}');
+      
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final decodedResponse = jsonDecode(response.body);
+        print('✅ API Response: $decodedResponse');
+        return decodedResponse;
       } else {
+        print('❌ Server Error: ${response.statusCode}');
         return {
           'success': false,
           'message': 'Erreur serveur: ${response.statusCode}'
         };
       }
     } catch (e) {
+      print('❌ Connection Error: $e');
       return {
         'success': false,
         'message': 'Erreur de connexion: $e'
@@ -223,6 +240,7 @@ class ApiService {
 class AuthProvider extends ChangeNotifier {
   User? _user;
   bool _isLoading = false;
+  String? _errorMessage;
   final ApiService _apiService = ApiService();
   final SharedPreferences _prefs;
 
@@ -230,7 +248,12 @@ class AuthProvider extends ChangeNotifier {
 
   User? get user => _user;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _user != null;
+
+  void _clearError() {
+    _errorMessage = null;
+  }
 
   Future<void> loadUser() async {
     final userJson = _prefs.getString('user');
@@ -239,6 +262,7 @@ class AuthProvider extends ChangeNotifier {
         _user = User.fromJson(jsonDecode(userJson));
         notifyListeners();
       } catch (e) {
+        print('Error loading user from storage: $e');
         await _prefs.remove('user');
       }
     }
@@ -246,25 +270,29 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> login(String email, String password) async {
     _isLoading = true;
+    _clearError();
     notifyListeners();
 
     final response = await _apiService.login(email, password);
 
+    _isLoading = false;
+    
     if (response['success'] == true) {
       final userData = response['data']['user'];
       _user = User.fromJson(userData);
       
       await _prefs.setString('user', jsonEncode(userData));
-      await _prefs.setString('session_id', response['data']['session_id'] ?? '');
+      if (response['data']['session_id'] != null) {
+        await _prefs.setString('session_id', response['data']['session_id']);
+      }
       
-      _isLoading = false;
       notifyListeners();
       return true;
+    } else {
+      _errorMessage = response['message'] ?? 'Email ou mot de passe incorrect';
+      notifyListeners();
+      return false;
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
   Future<bool> register({
@@ -274,6 +302,7 @@ class AuthProvider extends ChangeNotifier {
     String? referralCode,
   }) async {
     _isLoading = true;
+    _clearError();
     notifyListeners();
 
     final response = await _apiService.register(
@@ -283,27 +312,31 @@ class AuthProvider extends ChangeNotifier {
       referralCode: referralCode,
     );
 
+    _isLoading = false;
+    
     if (response['success'] == true) {
       final userData = response['data']['user'];
       _user = User.fromJson(userData);
       
       await _prefs.setString('user', jsonEncode(userData));
-      await _prefs.setString('session_id', response['data']['session_id'] ?? '');
+      if (response['data']['session_id'] != null) {
+        await _prefs.setString('session_id', response['data']['session_id']);
+      }
       
-      _isLoading = false;
       notifyListeners();
       return true;
+    } else {
+      _errorMessage = response['message'] ?? 'Erreur lors de l\'inscription';
+      notifyListeners();
+      return false;
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
   Future<void> logout() async {
     await _prefs.remove('user');
     await _prefs.remove('session_id');
     _user = null;
+    _clearError();
     notifyListeners();
   }
 }
@@ -331,7 +364,7 @@ class SkyBoostApp extends StatelessWidget {
         }
 
         return ChangeNotifierProvider(
-          create: (_) => AuthProvider(snapshot.data!),
+          create: (_) => AuthProvider(snapshot.data!)..loadUser(),
           child: MaterialApp(
             title: 'SkyBoost',
             debugShowCheckedModeBanner: false,
@@ -363,6 +396,13 @@ class SkyBoostApp extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+              inputDecorationTheme: InputDecorationTheme(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                filled: true,
+                fillColor: Colors.white,
               ),
             ),
             home: Consumer<AuthProvider>(
@@ -466,10 +506,12 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = false);
     
     if (!success && mounted) {
+      final errorMessage = authProvider.errorMessage;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Email ou mot de passe incorrect'),
+        SnackBar(
+          content: Text(errorMessage ?? 'Email ou mot de passe incorrect'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         ),
       );
     }
@@ -514,6 +556,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         const SizedBox(height: 20),
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             const Icon(
                               Icons.rocket_launch,
@@ -587,7 +630,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: const InputDecoration(
                               labelText: 'Adresse email',
                               prefixIcon: Icon(Icons.email),
-                              hintText: 'Entrez votre email',
+                              hintText: 'exemple@email.com',
                               border: OutlineInputBorder(),
                             ),
                             keyboardType: TextInputType.emailAddress,
@@ -613,6 +656,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               suffixIcon: IconButton(
                                 icon: Icon(
                                   _showPassword ? Icons.visibility : Icons.visibility_off,
+                                  color: Colors.grey,
                                 ),
                                 onPressed: () {
                                   setState(() {
@@ -628,19 +672,25 @@ class _LoginScreenState extends State<LoginScreen> {
                               if (value == null || value.isEmpty) {
                                 return 'Veuillez entrer votre mot de passe';
                               }
+                              if (value.length < 6) {
+                                return 'Minimum 6 caractères';
+                              }
                               return null;
                             },
                           ),
                           
                           const SizedBox(height: 24),
                           
-                           // Login Button
+                          // Login Button
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
                               onPressed: _isLoading ? null : _login,
                               style: ElevatedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                               child: _isLoading
                                   ? const SizedBox(
@@ -676,7 +726,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 style: TextStyle(color: Colors.grey),
                               ),
                               GestureDetector(
-                                onTap: _navigateToRegister,
+                                onTap: _isLoading ? null : _navigateToRegister,
                                 child: const Text(
                                   'Inscrivez-vous',
                                   style: TextStyle(
@@ -734,16 +784,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       username: _usernameController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text,
-      referralCode: _referralController.text.trim(),
+      referralCode: _referralController.text.trim().isEmpty ? null : _referralController.text.trim(),
     );
     
     setState(() => _isLoading = false);
     
     if (!success && mounted) {
+      final errorMessage = authProvider.errorMessage;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur lors de l\'inscription'),
+        SnackBar(
+          content: Text(errorMessage ?? 'Erreur lors de l\'inscription'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         ),
       );
     }
@@ -798,7 +850,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Nom d\'utilisateur',
                   prefixIcon: Icon(Icons.person),
-                  hintText: 'Entrez votre nom',
+                  hintText: 'Votre nom d\'utilisateur',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
@@ -820,7 +872,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Adresse email',
                   prefixIcon: Icon(Icons.email),
-                  hintText: 'Entrez votre email',
+                  hintText: 'exemple@email.com',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.emailAddress,
@@ -846,6 +898,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   suffixIcon: IconButton(
                     icon: Icon(
                       _showPassword ? Icons.visibility : Icons.visibility_off,
+                      color: Colors.grey,
                     ),
                     onPressed: () {
                       setState(() {
@@ -906,6 +959,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: _isLoading ? null : _register,
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child: _isLoading
                       ? const SizedBox(
@@ -941,7 +997,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: TextStyle(color: Colors.grey),
                   ),
                   GestureDetector(
-                    onTap: _navigateToLogin,
+                    onTap: _isLoading ? null : _navigateToLogin,
                     child: const Text(
                       'Connectez-vous',
                       style: TextStyle(
@@ -992,7 +1048,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadData();
+    });
   }
 
   Future<void> _loadData() async {
@@ -1002,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Load platforms
       final platformsResponse = await _apiService.getPlatforms();
       if (platformsResponse['success'] == true) {
-        _platforms = List<Map<String, dynamic>>.from(platformsResponse['data']);
+        _platforms = List<Map<String, dynamic>>.from(platformsResponse['data'] ?? []);
         if (_platforms.isNotEmpty) {
           _selectedPlatform = _platforms.first['id'];
           await _loadServices(_selectedPlatform!);
@@ -1010,16 +1068,19 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Load recent orders
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      if (authProvider.isAuthenticated) {
-        final ordersResponse = await _apiService.getUserOrders();
-        if (ordersResponse['success'] == true) {
-          final ordersData = List<Map<String, dynamic>>.from(ordersResponse['data']);
-          _recentOrders = ordersData.map((order) => Order.fromJson(order)).toList();
-        }
+      final ordersResponse = await _apiService.getUserOrders();
+      if (ordersResponse['success'] == true) {
+        final ordersData = List<Map<String, dynamic>>.from(ordersResponse['data'] ?? []);
+        _recentOrders = ordersData.map((order) => Order.fromJson(order)).toList();
       }
     } catch (e) {
       print('Error loading data: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors du chargement des données: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       setState(() => _isLoading = false);
     }
@@ -1031,11 +1092,19 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final response = await _apiService.getServices(platform);
       if (response['success'] == true) {
-        final servicesData = List<Map<String, dynamic>>.from(response['data']);
+        final servicesData = List<Map<String, dynamic>>.from(response['data'] ?? []);
         _services = servicesData.map((service) => Service.fromJson(service)).toList();
+      } else {
+        print('Error loading services: ${response['message']}');
       }
     } catch (e) {
       print('Error loading services: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors du chargement des services: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       setState(() => _isLoading = false);
     }
@@ -1089,6 +1158,16 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    if (quantity > _selectedService!.max && _selectedService!.max > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Quantité maximum: ${_selectedService!.max}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isOrderLoading = true);
     
     try {
@@ -1103,6 +1182,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SnackBar(
             content: Text('Commande passée avec succès !'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
           ),
         );
 
@@ -1140,6 +1220,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Provider.of<AuthProvider>(context, listen: false).logout();
   }
 
+  void _refreshData() {
+    _loadData();
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -1154,18 +1238,24 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  const Icon(Icons.account_balance_wallet, size: 20),
+                  const Icon(Icons.account_balance_wallet, size: 20, color: Colors.white),
                   const SizedBox(width: 4),
                   Text(
-                    '${user.balance} FCFA',
-                    style: const TextStyle(fontSize: 14),
+                    '${user.balance.toStringAsFixed(0)} ${user.currency}',
+                    style: const TextStyle(fontSize: 14, color: Colors.white),
                   ),
                 ],
               ),
             ),
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _refreshData,
+            tooltip: 'Actualiser',
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
             onPressed: _logout,
+            tooltip: 'Déconnexion',
           ),
         ],
       ),
@@ -1178,13 +1268,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   // Welcome
                   Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Bonjour, ${user?.username ?? 'Utilisateur'} !',
+                            'Bonjour, ${user?.username ?? 'Utilisateur'} ! 👋',
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -1192,9 +1286,33 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 8),
                           const Text(
-                            'Passez une commande pour booster vos réseaux sociaux',
+                            'Boostez vos réseaux sociaux en quelques clics',
                             style: TextStyle(color: Colors.grey),
                           ),
+                          const SizedBox(height: 12),
+                          if (user != null)
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF7800).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.info_outline, color: Color(0xFFFF7800)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Solde disponible: ${user.balance.toStringAsFixed(0)} ${user.currency}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFFFF7800),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -1204,54 +1322,91 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   // Order Form
                   Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Nouvelle commande',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          const Row(
+                            children: [
+                              Icon(Icons.add_shopping_cart, color: Color(0xFFFF7800)),
+                              SizedBox(width: 8),
+                              Text(
+                                'Nouvelle commande',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 16),
 
                           // Platform Selection
-                          const Text('Plateforme:'),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _platforms.map((platform) {
-                              return ChoiceChip(
-                                label: Text(platform['name']),
-                                selected: _selectedPlatform == platform['id'],
-                                onSelected: (selected) {
-                                  setState(() {
-                                    _selectedPlatform = platform['id'];
-                                    _selectedService = null;
-                                    _services.clear();
-                                    _loadServices(platform['id']);
-                                  });
-                                },
-                                selectedColor: const Color(0xFFFF7800),
-                              );
-                            }).toList(),
+                          const Text(
+                            'Plateforme',
+                            style: TextStyle(fontWeight: FontWeight.w500),
                           ),
+                          const SizedBox(height: 8),
+                          if (_platforms.isEmpty)
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'Aucune plateforme disponible',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          else
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _platforms.map((platform) {
+                                return ChoiceChip(
+                                  label: Text(platform['name'] ?? ''),
+                                  selected: _selectedPlatform == platform['id'],
+                                  onSelected: (selected) {
+                                    setState(() {
+                                      _selectedPlatform = platform['id'];
+                                      _selectedService = null;
+                                      _services.clear();
+                                      _loadServices(platform['id']);
+                                    });
+                                  },
+                                  selectedColor: const Color(0xFFFF7800),
+                                  labelStyle: TextStyle(
+                                    color: _selectedPlatform == platform['id'] 
+                                        ? Colors.white 
+                                        : Colors.black,
+                                  ),
+                                );
+                              }).toList(),
+                            ),
 
                           const SizedBox(height: 16),
 
                           // Service Selection
                           if (_services.isNotEmpty) ...[
-                            const Text('Service:'),
+                            const Text(
+                              'Service',
+                              style: TextStyle(fontWeight: FontWeight.w500),
+                            ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<Service>(
                               value: _selectedService,
                               decoration: const InputDecoration(
                                 border: OutlineInputBorder(),
                                 hintText: 'Choisir un service',
+                                filled: true,
+                                fillColor: Colors.white,
                               ),
                               items: _services.map((service) {
                                 return DropdownMenuItem<Service>(
@@ -1262,9 +1417,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                       Text(
                                         service.name,
                                         overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontWeight: FontWeight.w500),
                                       ),
+                                      const SizedBox(height: 4),
                                       Text(
-                                        'Min: ${service.min} | Max: ${service.max}',
+                                        '${service.rate} FCFA/1000 | Min: ${service.min} | Max: ${service.max > 0 ? service.max : 'Illimité'}',
                                         style: const TextStyle(
                                           fontSize: 12,
                                           color: Colors.grey,
@@ -1280,6 +1437,23 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _calculatePrice();
                                 });
                               },
+                              validator: (value) => value == null ? 'Sélectionnez un service' : null,
+                            ),
+                          ],
+
+                          if (_selectedPlatform != null && _services.isEmpty && !_isLoading) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'Aucun service disponible pour cette plateforme',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey),
+                              ),
                             ),
                           ],
 
@@ -1290,9 +1464,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             controller: _linkController,
                             decoration: const InputDecoration(
                               labelText: 'Lien',
-                              hintText: 'https://...',
+                              hintText: 'https://instagram.com/votre-profil',
                               border: OutlineInputBorder(),
                               prefixIcon: Icon(Icons.link),
+                              filled: true,
+                              fillColor: Colors.white,
                             ),
                           ),
 
@@ -1301,11 +1477,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           // Quantity
                           TextFormField(
                             controller: _quantityController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Quantité',
-                              hintText: '100',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.numbers),
+                              hintText: _selectedService?.min.toString() ?? '100',
+                              border: const OutlineInputBorder(),
+                              prefixIcon: const Icon(Icons.numbers),
+                              filled: true,
+                              fillColor: Colors.white,
+                              suffixText: _selectedService != null 
+                                  ? 'Min: ${_selectedService!.min}' 
+                                  : null,
                             ),
                             keyboardType: TextInputType.number,
                             onChanged: (_) => _calculatePrice(),
@@ -1317,24 +1498,36 @@ class _HomeScreenState extends State<HomeScreen> {
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: Colors.grey[100],
+                              color: const Color(0xFFFF7800).withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey[300]!),
+                              border: Border.all(color: const Color(0xFFFF7800).withOpacity(0.3)),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
-                                  'Prix total:',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                const Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Prix total',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Text(
+                                      'TTC',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 Text(
                                   '${_totalPrice.toStringAsFixed(2)} FCFA',
                                   style: const TextStyle(
-                                    fontSize: 18,
+                                    fontSize: 20,
                                     fontWeight: FontWeight.bold,
                                     color: Color(0xFFFF7800),
                                   ),
@@ -1352,6 +1545,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               onPressed: _isOrderLoading ? null : _createOrder,
                               style: ElevatedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                               child: _isOrderLoading
                                   ? const SizedBox(
@@ -1384,36 +1580,60 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   // Recent Orders
                   Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            '5 dernières commandes',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          const Row(
+                            children: [
+                              Icon(Icons.history, color: Color(0xFFFF7800)),
+                              SizedBox(width: 8),
+                              Text(
+                                'Dernières commandes',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           const Divider(),
                           const SizedBox(height: 8),
                           
                           if (_recentOrders.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Text(
-                                'Aucune commande récente',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey),
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.shopping_cart_outlined,
+                                    size: 48,
+                                    color: Colors.grey[300],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'Aucune commande récente',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                ],
                               ),
                             )
                           else
                             Column(
-                              children: _recentOrders.map((order) {
+                              children: _recentOrders.asMap().entries.map((entry) {
+                                final order = entry.value;
+                                final index = entry.key;
                                 return Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
+                                  margin: EdgeInsets.only(
+                                    bottom: index == _recentOrders.length - 1 ? 0 : 12,
+                                  ),
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
                                     border: Border.all(color: Colors.grey[300]!),
@@ -1425,30 +1645,31 @@ class _HomeScreenState extends State<HomeScreen> {
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          Text(
-                                            order.service,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
+                                          Expanded(
+                                            child: Text(
+                                              order.service,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
+                                          const SizedBox(width: 8),
                                           Container(
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 8,
                                               vertical: 4,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: order.status == 'Terminé'
-                                                  ? Colors.green[100]
-                                                  : Colors.orange[100],
+                                              color: _getStatusColor(order.status),
                                               borderRadius: BorderRadius.circular(4),
                                             ),
                                             child: Text(
                                               order.status,
-                                              style: TextStyle(
-                                                color: order.status == 'Terminé'
-                                                    ? Colors.green[800]
-                                                    : Colors.orange[800],
+                                              style: const TextStyle(
                                                 fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                                color: Colors.white,
                                               ),
                                             ),
                                           ),
@@ -1456,7 +1677,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Lien: ${order.link.substring(0, min(30, order.link.length))}...',
+                                        'Lien: ${_truncateLink(order.link)}',
                                         style: const TextStyle(
                                           fontSize: 12,
                                           color: Colors.grey,
@@ -1471,17 +1692,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                             style: const TextStyle(fontSize: 12),
                                           ),
                                           Text(
-                                            '${order.price} FCFA',
+                                            '${order.price.toStringAsFixed(2)} FCFA',
                                             style: const TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
+                                              color: Color(0xFFFF7800),
                                             ),
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Date: ${DateFormat('dd/MM/yyyy HH:mm').format(order.date)}',
+                                        'Date: ${DateFormat('dd/MM/yyyy à HH:mm').format(order.date)}',
                                         style: const TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey,
@@ -1503,5 +1725,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
     );
   }
-}
 
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'terminé':
+      case 'completed':
+      case 'success':
+        return Colors.green;
+      case 'en cours':
+      case 'pending':
+      case 'processing':
+        return Colors.orange;
+      case 'annulé':
+      case 'cancelled':
+      case 'failed':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _truncateLink(String link) {
+    if (link.length <= 30) return link;
+    return '${link.substring(0, 30)}...';
+  }
+}
