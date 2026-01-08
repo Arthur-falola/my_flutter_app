@@ -1,35 +1,41 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # permet de lancer manuellement
   push:
-    branches: [ main ]
+    branches: [ main ] # ou la branche que tu utilises
 
 permissions:
-  contents: read
+  contents: read  # pas besoin de write ici pour build seulement
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Récupérer le code du repo
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # 2️⃣ Installer Flutter
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.19.6"
 
+      # 3️⃣ Vérifier Flutter
       - name: Flutter doctor
         run: flutter doctor
 
+      # 4️⃣ Installer les dépendances
       - name: Get dependencies
         run: flutter pub get
 
+      # 5️⃣ Compiler l'APK release
       - name: Build APK (release)
         run: flutter build apk --release
 
+      # 6️⃣ Publier l'APK comme artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
